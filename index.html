@@ -148,7 +148,6 @@ detectBtn.addEventListener("click", async () => {
 
     bpmResult.textContent = "Analyzing...";
 
-    // let browser update UI before heavy work
     await new Promise(requestAnimationFrame);
 
     const audioContext = new AudioContext();
@@ -156,51 +155,63 @@ detectBtn.addEventListener("click", async () => {
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-    const raw = audioBuffer.getChannelData(0);
+    const data = audioBuffer.getChannelData(0);
 
-    // MUCH smaller sample set (important fix)
-    const samples = [];
-    const step = 6; // increased downsampling for speed
+    // STEP 1: heavy downsample (VERY important)
+    const blockSize = 2048;
+    let energy = [];
 
-    for (let i = 0; i < raw.length; i += step) {
-        samples.push(raw[i]);
-    }
+    for (let i = 0; i < data.length; i += blockSize) {
+        let sum = 0;
 
-    function autoCorrelate(buffer, sampleRate) {
-        const SIZE = buffer.length;
-        const MAX_SAMPLES = Math.floor(SIZE / 2);
-
-        let bestOffset = -1;
-        let bestCorr = 0;
-
-        for (let offset = 50; offset < MAX_SAMPLES; offset += 2) { // skip steps for speed
-            let corr = 0;
-
-            for (let i = 0; i < MAX_SAMPLES; i++) {
-                const v1 = buffer[i];
-                const v2 = buffer[i + offset] || 0;
-                corr += Math.abs(v1 - v2);
-            }
-
-            corr = 1 - (corr / MAX_SAMPLES);
-
-            if (corr > bestCorr) {
-                bestCorr = corr;
-                bestOffset = offset;
-            }
+        for (let j = 0; j < blockSize && i + j < data.length; j++) {
+            const v = data[i + j];
+            sum += v * v; // energy (better than abs)
         }
 
-        if (bestOffset === -1) return -1;
-
-        return 60 * sampleRate / (bestOffset * step);
+        energy.push(sum);
     }
 
-    const bpm = autoCorrelate(samples, audioContext.sampleRate);
+    // STEP 2: normalize peaks (simple threshold)
+    let peaks = [];
+    let threshold = 0;
 
-    if (!bpm || bpm < 40 || bpm > 300) {
+    for (let i = 0; i < energy.length; i++) {
+        threshold += energy[i];
+    }
+    threshold /= energy.length;
+
+    for (let i = 1; i < energy.length - 1; i++) {
+        if (
+            energy[i] > energy[i - 1] &&
+            energy[i] > energy[i + 1] &&
+            energy[i] > threshold * 1.2
+        ) {
+            peaks.push(i);
+        }
+    }
+
+    if (peaks.length < 3) {
         bpmResult.textContent = "Could not detect BPM";
         return;
     }
+
+    // STEP 3: estimate spacing
+    let intervals = [];
+
+    for (let i = 1; i < peaks.length; i++) {
+        intervals.push(peaks[i] - peaks[i - 1]);
+    }
+
+    let avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+
+    // STEP 4: convert to BPM
+    const secondsPerBeat = (avg * blockSize) / audioContext.sampleRate;
+    let bpm = 60 / secondsPerBeat;
+
+    // STEP 5: cleanup (fix octave errors)
+    while (bpm < 60) bpm *= 2;
+    while (bpm > 200) bpm /= 2;
 
     bpmResult.textContent = "Detected BPM: " + bpm.toFixed(2);
 });
