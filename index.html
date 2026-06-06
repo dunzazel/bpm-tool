@@ -157,35 +157,32 @@ detectBtn.addEventListener("click", async () => {
 
     const data = audioBuffer.getChannelData(0);
 
-    // STEP 1: heavy downsample (VERY important)
-    const blockSize = 2048;
-    let energy = [];
+    // STEP 1: onset detection (energy difference)
+    const blockSize = 1024;
+    let flux = [];
 
-    for (let i = 0; i < data.length; i += blockSize) {
-        let sum = 0;
+    for (let i = 1; i < data.length; i += blockSize) {
+        let prev = 0;
+        let curr = 0;
 
         for (let j = 0; j < blockSize && i + j < data.length; j++) {
-            const v = data[i + j];
-            sum += v * v; // energy (better than abs)
+            curr += Math.abs(data[i + j]);
+            prev += Math.abs(data[i + j - blockSize] || 0);
         }
 
-        energy.push(sum);
+        flux.push(Math.max(0, curr - prev));
     }
 
-    // STEP 2: normalize peaks (simple threshold)
+    // STEP 2: normalize flux
+    let avg = flux.reduce((a, b) => a + b, 0) / flux.length;
+
     let peaks = [];
-    let threshold = 0;
 
-    for (let i = 0; i < energy.length; i++) {
-        threshold += energy[i];
-    }
-    threshold /= energy.length;
-
-    for (let i = 1; i < energy.length - 1; i++) {
+    for (let i = 1; i < flux.length - 1; i++) {
         if (
-            energy[i] > energy[i - 1] &&
-            energy[i] > energy[i + 1] &&
-            energy[i] > threshold * 1.2
+            flux[i] > flux[i - 1] &&
+            flux[i] > flux[i + 1] &&
+            flux[i] > avg * 1.5
         ) {
             peaks.push(i);
         }
@@ -196,21 +193,22 @@ detectBtn.addEventListener("click", async () => {
         return;
     }
 
-    // STEP 3: estimate spacing
+    // STEP 3: intervals between beats
     let intervals = [];
 
     for (let i = 1; i < peaks.length; i++) {
         intervals.push(peaks[i] - peaks[i - 1]);
     }
 
-    let avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    let avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
 
-    // STEP 4: convert to BPM
-    const secondsPerBeat = (avg * blockSize) / audioContext.sampleRate;
+    const secondsPerBeat =
+        (avgInterval * blockSize) / audioContext.sampleRate;
+
     let bpm = 60 / secondsPerBeat;
 
-    // STEP 5: cleanup (fix octave errors)
-    while (bpm < 60) bpm *= 2;
+    // STEP 4: fix octave errors (VERY important)
+    while (bpm < 80) bpm *= 2;
     while (bpm > 200) bpm /= 2;
 
     bpmResult.textContent = "Detected BPM: " + bpm.toFixed(2);
