@@ -1,3 +1,5 @@
+<!-- w chatgtp -->
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -146,6 +148,9 @@ detectBtn.addEventListener("click", async () => {
 
     bpmResult.textContent = "Analyzing...";
 
+    // let browser update UI before heavy work
+    await new Promise(requestAnimationFrame);
+
     const audioContext = new AudioContext();
 
     const arrayBuffer = await file.arrayBuffer();
@@ -153,9 +158,9 @@ detectBtn.addEventListener("click", async () => {
 
     const raw = audioBuffer.getChannelData(0);
 
-    // downsample
+    // MUCH smaller sample set (important fix)
     const samples = [];
-    const step = 3;
+    const step = 6; // increased downsampling for speed
 
     for (let i = 0; i < raw.length; i += step) {
         samples.push(raw[i]);
@@ -168,8 +173,7 @@ detectBtn.addEventListener("click", async () => {
         let bestOffset = -1;
         let bestCorr = 0;
 
-        for (let offset = 40; offset < MAX_SAMPLES; offset++) {
-
+        for (let offset = 50; offset < MAX_SAMPLES; offset += 2) { // skip steps for speed
             let corr = 0;
 
             for (let i = 0; i < MAX_SAMPLES; i++) {
