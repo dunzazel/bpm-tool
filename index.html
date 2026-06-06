@@ -27,7 +27,7 @@ body {
 
 .card {
     width: 100%;
-    max-width: 600px;
+    max-width: 650px;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 20px;
@@ -37,6 +37,10 @@ body {
 
 h1 {
     margin-top: 0;
+}
+
+h2 {
+    margin-bottom: 10px;
 }
 
 input, button {
@@ -77,7 +81,7 @@ button:hover {
 <div class="card">
     <h1>BPM Tool</h1>
 
-    <!-- SLIDER TOOL -->
+    <!-- SLIDER -->
     <h2>Slider Calculator</h2>
 
     <input id="orig" type="number" value="128">
@@ -125,7 +129,7 @@ calculateSlider();
 
 
 /* =========================
-   BPM DETECTOR
+   BPM DETECTOR (FIXED)
 ========================= */
 
 const fileInput = document.getElementById("audioFile");
@@ -147,51 +151,54 @@ detectBtn.addEventListener("click", async () => {
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-    const data = audioBuffer.getChannelData(0);
+    const raw = audioBuffer.getChannelData(0);
 
-    const blockSize = 1024;
-    let energies = [];
+    // downsample
+    const samples = [];
+    const step = 3;
 
-    for (let i = 0; i < data.length; i += blockSize) {
-        let sum = 0;
-
-        for (let j = i; j < i + blockSize && j < data.length; j++) {
-            sum += Math.abs(data[j]);
-        }
-
-        energies.push(sum);
+    for (let i = 0; i < raw.length; i += step) {
+        samples.push(raw[i]);
     }
 
-    let peaks = [];
+    function autoCorrelate(buffer, sampleRate) {
+        const SIZE = buffer.length;
+        const MAX_SAMPLES = Math.floor(SIZE / 2);
 
-    for (let i = 1; i < energies.length - 1; i++) {
-        if (energies[i] > energies[i - 1] &&
-            energies[i] > energies[i + 1]) {
-            peaks.push(i);
+        let bestOffset = -1;
+        let bestCorr = 0;
+
+        for (let offset = 40; offset < MAX_SAMPLES; offset++) {
+
+            let corr = 0;
+
+            for (let i = 0; i < MAX_SAMPLES; i++) {
+                const v1 = buffer[i];
+                const v2 = buffer[i + offset] || 0;
+                corr += Math.abs(v1 - v2);
+            }
+
+            corr = 1 - (corr / MAX_SAMPLES);
+
+            if (corr > bestCorr) {
+                bestCorr = corr;
+                bestOffset = offset;
+            }
         }
+
+        if (bestOffset === -1) return -1;
+
+        return 60 * sampleRate / (bestOffset * step);
     }
 
-    if (peaks.length < 2) {
+    const bpm = autoCorrelate(samples, audioContext.sampleRate);
+
+    if (!bpm || bpm < 40 || bpm > 300) {
         bpmResult.textContent = "Could not detect BPM";
         return;
     }
 
-    let intervals = [];
-
-    for (let i = 1; i < peaks.length; i++) {
-        intervals.push(peaks[i] - peaks[i - 1]);
-    }
-
-    let avgInterval =
-        intervals.reduce((a, b) => a + b, 0) / intervals.length;
-
-    let secondsPerBeat =
-        (avgInterval * blockSize) / audioContext.sampleRate;
-
-    let bpm = 60 / secondsPerBeat;
-
-    bpmResult.textContent =
-        "Detected BPM: " + bpm.toFixed(2);
+    bpmResult.textContent = "Detected BPM: " + bpm.toFixed(2);
 });
 </script>
 
