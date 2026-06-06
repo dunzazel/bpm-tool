@@ -141,7 +141,8 @@ function cleanBPM(bpm) {
 
     const nearest = Math.round(bpm);
 
-    if (Math.abs(bpm - nearest) <= 0.6) {
+    // MUCH stricter threshold
+    if (Math.abs(bpm - nearest) <= 0.25) {
         return nearest;
     }
 
