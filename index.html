@@ -26,10 +26,6 @@ body {
     box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
 
-h1 {
-    margin-top: 0;
-}
-
 .section {
     margin-top: 20px;
     padding-top: 18px;
@@ -71,33 +67,38 @@ button:hover {
 <body>
 
 <div class="card">
+
     <h1>BPM Tool</h1>
 
-    <!-- FL SLIDER -->
+    <!-- SLIDER -->
     <div class="section">
-        <h2>FL Slider Calculator</h2>
+        <h2>FL Slider</h2>
 
-        <input id="orig" type="number" value="128" placeholder="Original BPM">
-        <input id="target" type="number" value="120" placeholder="Target BPM">
+        <input id="orig" type="number" value="128">
+        <input id="target" type="number" value="120">
 
         <div class="result" id="sliderResult">0.000000</div>
     </div>
 
     <!-- BPM DETECTOR -->
     <div class="section">
-        <h2>BPM Detector</h2>
+        <h2>BPM Detector (ArrowVortex-style)</h2>
 
         <input type="file" id="audioFile" accept="audio/*">
         <button id="detectBtn">Detect BPM</button>
 
         <div class="result" id="bpmResult">Waiting...</div>
     </div>
+
 </div>
+
+<!-- ESSENTIA -->
+<script src="https://cdn.jsdelivr.net/npm/essentia.js/dist/essentia.js"></script>
 
 <script>
 
 /* =========================
-   SLIDER CALCULATOR
+   FL SLIDER
 ========================= */
 
 const orig = document.getElementById("orig");
@@ -118,19 +119,28 @@ function updateSlider() {
 
 orig.addEventListener("input", updateSlider);
 target.addEventListener("input", updateSlider);
-
 updateSlider();
 
 
 /* =========================
-   BPM DETECTOR (STABLE CORE)
+   ESSENTIA BPM
 ========================= */
 
 const fileInput = document.getElementById("audioFile");
 const detectBtn = document.getElementById("detectBtn");
 const bpmResult = document.getElementById("bpmResult");
 
+let essentia;
+
+async function init() {
+    const EssentiaWASM = await EssentiaModule();
+    essentia = new Essentia(EssentiaWASM);
+}
+
+init();
+
 detectBtn.addEventListener("click", async () => {
+
     const file = fileInput.files[0];
 
     if (!file) {
@@ -140,91 +150,25 @@ detectBtn.addEventListener("click", async () => {
 
     bpmResult.textContent = "Analyzing...";
 
-    await new Promise(requestAnimationFrame);
-
     const audioContext = new AudioContext();
+
     const buffer = await audioContext.decodeAudioData(await file.arrayBuffer());
 
-    const raw = buffer.getChannelData(0);
+    const signal = buffer.getChannelData(0);
 
-    /* =========================
-       STEP 1: spectral-like envelope
-    ========================= */
+    const vector = essentia.arrayToVector(signal);
 
-    const step = 512;
-    let envelope = [];
+    const rhythm = essentia.RhythmExtractor2013(vector, buffer.sampleRate);
 
-    for (let i = 0; i < raw.length; i += step) {
-        let rms = 0;
+    let bpm = rhythm.bpm;
 
-        for (let j = 0; j < step && i + j < raw.length; j++) {
-            const v = raw[i + j];
-            rms += v * v;
-        }
-
-        envelope.push(Math.sqrt(rms / step));
-    }
-
-    /* =========================
-       STEP 2: remove slow trends (IMPORTANT FIX)
-    ========================= */
-
-    let filtered = [];
-
-    for (let i = 1; i < envelope.length; i++) {
-        filtered[i] = Math.max(0, envelope[i] - envelope[i - 1]);
-    }
-
-    filtered = filtered.filter(v => !isNaN(v));
-
-    /* normalize */
-    const max = Math.max(...filtered) || 1;
-    filtered = filtered.map(v => v / max);
-
-    /* =========================
-       STEP 3: autocorrelation on CLEANED ONSETS
-    ========================= */
-
-    const sr = audioContext.sampleRate / step;
-
-    const minLag = Math.floor((sr * 60) / 200);
-    const maxLag = Math.floor((sr * 60) / 60);
-
-    let bestLag = 0;
-    let bestScore = -Infinity;
-
-    for (let lag = minLag; lag < maxLag; lag++) {
-
-        let score = 0;
-
-        for (let i = 0; i < filtered.length - lag; i++) {
-            score += filtered[i] * filtered[i + lag];
-        }
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestLag = lag;
-        }
-    }
-
-    if (!bestLag) {
-        bpmResult.textContent = "Could not detect BPM";
-        return;
-    }
-
-    /* =========================
-       STEP 4: BPM
-    ========================= */
-
-    let bpm = 60 * sr / bestLag;
-
-    /* only octave fix (no guessing) */
     while (bpm < 80) bpm *= 2;
     while (bpm > 200) bpm /= 2;
 
     bpm = Math.round(bpm * 100) / 100;
 
-    bpmResult.textContent = "Detected BPM: " + bpm;
+    bpmResult.textContent =
+        `Detected BPM: ${bpm}`;
 });
 
 </script>
