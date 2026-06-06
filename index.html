@@ -8,39 +8,28 @@
 <style>
 body {
     margin: 0;
-    min-height: 100vh;
-    font-family: system-ui, sans-serif;
-    background: #0b0d12;
+    height: 100vh;
     display: flex;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
+    background: #0b0d12;
     color: white;
+    font-family: system-ui;
 }
 
 .card {
-    width: 92%;
-    max-width: 500px;
+    width: 400px;
     background: #121725;
-    padding: 24px;
-    border-radius: 16px;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-}
-
-h1 {
-    margin-top: 0;
-}
-
-.section {
-    margin-top: 20px;
+    padding: 20px;
+    border-radius: 12px;
 }
 
 input {
     width: 100%;
-    padding: 12px;
     margin-top: 10px;
-    border-radius: 10px;
+    padding: 10px;
+    border-radius: 8px;
     border: none;
-    font-size: 14px;
     background: #1b2236;
     color: white;
 }
@@ -57,14 +46,12 @@ input {
 
 <div class="card">
 
-    <h1>FL Tempo Slider</h1>
+<h2>FL Tempo Slider</h2>
 
-    <div class="section">
-        <input id="orig" type="number" value="128" placeholder="Original BPM">
-        <input id="target" type="number" value="120" placeholder="Target BPM">
+<input id="orig" type="number" value="130">
+<input id="target" type="number" value="140">
 
-        <div class="result" id="sliderResult">0.500000</div>
-    </div>
+<div class="result" id="out">0.500000</div>
 
 </div>
 
@@ -72,30 +59,29 @@ input {
 
 const orig = document.getElementById("orig");
 const target = document.getElementById("target");
-const sliderResult = document.getElementById("sliderResult");
+const out = document.getElementById("out");
 
-/* =========================
-   FL-STYLE LOG SLIDER
-   0.5 = normal speed
-========================= */
+/* FITTED MODEL */
+const k = 0.349;
+const a = 0.041;
 
-const k = 0.3613;
-
-function updateSlider() {
+function update() {
     const o = parseFloat(orig.value);
     const t = parseFloat(target.value);
 
     if (!o || !t || o <= 0 || t <= 0) return;
 
-    const value = 0.5 - k * Math.log2(t / o);
+    const x = Math.log(t / o);
 
-    sliderResult.textContent = value.toFixed(6);
+    const value = 0.5 - k * x + a * x * x;
+
+    out.textContent = value.toFixed(6);
 }
 
-orig.addEventListener("input", updateSlider);
-target.addEventListener("input", updateSlider);
+orig.oninput = update;
+target.oninput = update;
 
-updateSlider();
+update();
 
 </script>
 
