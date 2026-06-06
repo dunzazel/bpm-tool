@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Audio Analyzer</title>
+<title>FL Slider Tool</title>
 
 <style>
 body {
@@ -19,32 +19,31 @@ body {
 
 .card {
     width: 92%;
-    max-width: 700px;
+    max-width: 500px;
     background: #121725;
     padding: 24px;
     border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
 
 .section {
     margin-top: 20px;
-    padding-top: 18px;
-    border-top: 1px solid #2a3350;
 }
 
-input, button {
+input {
     width: 100%;
     padding: 12px;
     margin-top: 10px;
     border-radius: 10px;
     border: none;
+    font-size: 14px;
+    background: #1b2236;
+    color: white;
 }
 
-input { background:#1b2236; color:white; }
-button { background:#4c7dff; color:white; cursor:pointer; }
-
 .result {
-    margin-top: 12px;
-    font-size: 18px;
+    margin-top: 15px;
+    font-size: 20px;
     color: #7aa2ff;
 }
 </style>
@@ -54,31 +53,18 @@ button { background:#4c7dff; color:white; cursor:pointer; }
 
 <div class="card">
 
-<h1>Audio Analyzer</h1>
+    <h1>FL Tempo Slider</h1>
 
-<div class="section">
-    <h2>FL Slider</h2>
-    <input id="orig" type="number" value="128">
-    <input id="target" type="number" value="120">
-    <div class="result" id="sliderResult"></div>
-</div>
+    <div class="section">
+        <input id="orig" type="number" value="128" placeholder="Original BPM">
+        <input id="target" type="number" value="120" placeholder="Target BPM">
 
-<div class="section">
-    <h2>Analyze</h2>
-    <input type="file" id="audioFile">
-    <button id="analyzeBtn">Analyze</button>
-
-    <div class="result" id="bpmResult">BPM: -</div>
-    <div class="result" id="keyResult">Key: -</div>
-</div>
+        <div class="result" id="sliderResult">0.000000</div>
+    </div>
 
 </div>
 
 <script>
-
-/* =========================
-   FL SLIDER
-========================= */
 
 const orig = document.getElementById("orig");
 const target = document.getElementById("target");
@@ -88,133 +74,18 @@ function updateSlider() {
     const o = parseFloat(orig.value);
     const t = parseFloat(target.value);
 
-    const k = 0.3613;
-    const val = 0.5 - k * Math.log(t / o);
+    if (!o || !t || o <= 0 || t <= 0) return;
 
-    sliderResult.textContent = val.toFixed(6);
+    const ratio = t / o;
+    const value = Math.log2(ratio);
+
+    sliderResult.textContent = value.toFixed(6);
 }
 
-orig.oninput = updateSlider;
-target.oninput = updateSlider;
+orig.addEventListener("input", updateSlider);
+target.addEventListener("input", updateSlider);
+
 updateSlider();
-
-
-/* =========================
-   SIMPLE BPM DETECTOR (STABLE)
-========================= */
-
-function detectBPM(signal, sampleRate) {
-
-    const frameSize = 1024;
-
-    let onset = [];
-    let prevEnergy = 0;
-
-    for (let i = 0; i < signal.length; i += frameSize) {
-
-        let energy = 0;
-
-        for (let j = 0; j < frameSize && i + j < signal.length; j++) {
-            const v = signal[i + j];
-            energy += v * v;
-        }
-
-        energy = Math.sqrt(energy / frameSize);
-
-        const diff = Math.max(0, energy - prevEnergy);
-        onset.push(diff);
-
-        prevEnergy = energy;
-    }
-
-    // normalize
-    const max = Math.max(...onset) || 1;
-    onset = onset.map(v => v / max);
-
-    const sr = sampleRate / frameSize;
-
-    const minLag = Math.floor((sr * 60) / 200);
-    const maxLag = Math.floor((sr * 60) / 60);
-
-    let bestLag = 0;
-    let bestScore = -Infinity;
-
-    for (let lag = minLag; lag < maxLag; lag++) {
-
-        let score = 0;
-
-        for (let i = 0; i < onset.length - lag; i++) {
-            score += onset[i] * onset[i + lag];
-        }
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestLag = lag;
-        }
-    }
-
-    let bpm = 60 * sr / bestLag;
-
-    while (bpm < 80) bpm *= 2;
-    while (bpm > 200) bpm /= 2;
-
-    return Math.round(bpm * 100) / 100;
-}
-
-
-/* =========================
-   SIMPLE KEY DETECTION (LIGHTWEIGHT)
-========================= */
-
-function detectKey(signal) {
-
-    const notes = new Array(12).fill(0);
-
-    for (let i = 0; i < signal.length; i += 2048) {
-
-        let chunk = 0;
-
-        for (let j = 0; j < 2048 && i + j < signal.length; j++) {
-            chunk += Math.abs(signal[i + j]);
-        }
-
-        notes[i % 12] += chunk;
-    }
-
-    const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-
-    let best = 0;
-    for (let i = 1; i < 12; i++) {
-        if (notes[i] > notes[best]) best = i;
-    }
-
-    return names[best];
-}
-
-
-/* =========================
-   MAIN
-========================= */
-
-document.getElementById("analyzeBtn").onclick = async () => {
-
-    const file = document.getElementById("audioFile").files[0];
-    if (!file) return;
-
-    document.getElementById("bpmResult").textContent = "BPM: analyzing...";
-    document.getElementById("keyResult").textContent = "Key: analyzing...";
-
-    const ctx = new AudioContext();
-    const buffer = await ctx.decodeAudioData(await file.arrayBuffer());
-
-    const signal = buffer.getChannelData(0);
-
-    const bpm = detectBPM(signal, buffer.sampleRate);
-    const key = detectKey(signal);
-
-    document.getElementById("bpmResult").textContent = "BPM: " + bpm;
-    document.getElementById("keyResult").textContent = "Key: " + key;
-};
 
 </script>
 
