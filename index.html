@@ -65,23 +65,6 @@ button:hover {
     font-size: 20px;
     color: #7aa2ff;
 }
-
-/* progress */
-.progress-container {
-    width: 100%;
-    height: 10px;
-    background: #1b2236;
-    border-radius: 5px;
-    margin-top: 15px;
-    overflow: hidden;
-}
-
-.progress-bar {
-    height: 100%;
-    width: 0%;
-    background: #4c7dff;
-    transition: width 0.1s linear;
-}
 </style>
 </head>
 
@@ -107,15 +90,12 @@ button:hover {
         <input type="file" id="audioFile" accept="audio/*">
         <button id="detectBtn">Detect BPM</button>
 
-        <div class="progress-container">
-            <div class="progress-bar" id="progress"></div>
-        </div>
-
         <div class="result" id="bpmResult">Waiting...</div>
     </div>
 </div>
 
 <script>
+
 /* =========================
    SLIDER CALCULATOR
 ========================= */
@@ -143,28 +123,22 @@ updateSlider();
 
 
 /* =========================
-   BPM DETECTOR
+   BPM DETECTOR (STABLE CORE)
 ========================= */
 
 const fileInput = document.getElementById("audioFile");
 const detectBtn = document.getElementById("detectBtn");
 const bpmResult = document.getElementById("bpmResult");
-const progress = document.getElementById("progress");
-
-function setProgress(p) {
-    progress.style.width = (p * 100) + "%";
-}
 
 detectBtn.addEventListener("click", async () => {
-    const file = fileInput.files[0];
 
+    const file = fileInput.files[0];
     if (!file) {
         bpmResult.textContent = "Select a file first.";
         return;
     }
 
     bpmResult.textContent = "Analyzing...";
-    setProgress(0);
 
     await new Promise(requestAnimationFrame);
 
@@ -175,7 +149,10 @@ detectBtn.addEventListener("click", async () => {
 
     const raw = audioBuffer.getChannelData(0);
 
-    /* ENERGY */
+    /* =========================
+       STEP 1: energy envelope
+    ========================= */
+
     const block = 1024;
     let energy = [];
 
@@ -187,56 +164,60 @@ detectBtn.addEventListener("click", async () => {
         }
 
         energy.push(sum);
-
-        if (i % (block * 20) === 0) {
-            setProgress(i / raw.length * 0.4);
-            await new Promise(r => setTimeout(r, 0));
-        }
     }
 
+    /* normalize */
     const maxVal = Math.max(...energy) || 1;
     energy = energy.map(v => v / maxVal);
 
-    /* AUTOCORRELATION */
+    /* =========================
+       STEP 2: candidate scoring (FIXES DRIFT)
+    ========================= */
+
     const sampleRate = audioContext.sampleRate / block;
 
     const minLag = Math.floor((sampleRate * 60) / 200);
     const maxLag = Math.floor((sampleRate * 60) / 60);
 
-    let bestLag = 0;
-    let bestScore = -Infinity;
-
-    const total = maxLag - minLag;
+    let candidates = [];
 
     for (let lag = minLag; lag < maxLag; lag++) {
+
         let score = 0;
 
         for (let i = 0; i < energy.length - lag; i++) {
             score += energy[i] * energy[i + lag];
         }
 
-        if (score > bestScore) {
-            bestScore = score;
-            bestLag = lag;
-        }
+        const bpm = 60 * sampleRate / lag;
 
-        if (lag % 5 === 0) {
-            setProgress(0.4 + (lag - minLag) / total * 0.6);
-            await new Promise(r => setTimeout(r, 0));
-        }
+        candidates.push({ bpm, score });
     }
 
-    let bpm = 60 * sampleRate / bestLag;
+    /* =========================
+       STEP 3: pick best candidates
+    ========================= */
+
+    candidates.sort((a, b) => b.score - a.score);
+
+    const top = candidates.slice(0, 7);
+
+    top.sort((a, b) => a.bpm - b.bpm);
+
+    let bpm = top[Math.floor(top.length / 2)].bpm;
+
+    /* =========================
+       STEP 4: light cleanup only
+    ========================= */
 
     while (bpm < 80) bpm *= 2;
     while (bpm > 200) bpm /= 2;
 
     bpm = Math.round(bpm * 100) / 100;
 
-    setProgress(1);
-
     bpmResult.textContent = "Detected BPM: " + bpm;
 });
+
 </script>
 
 </body>
