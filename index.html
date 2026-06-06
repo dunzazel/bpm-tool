@@ -23,7 +23,6 @@ body {
     background: #121725;
     padding: 24px;
     border-radius: 16px;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
 
 .section {
@@ -38,23 +37,10 @@ input, button {
     margin-top: 10px;
     border-radius: 10px;
     border: none;
-    font-size: 14px;
 }
 
-input {
-    background: #1b2236;
-    color: white;
-}
-
-button {
-    background: #4c7dff;
-    color: white;
-    cursor: pointer;
-}
-
-button:hover {
-    background: #3a66dd;
-}
+input { background:#1b2236; color:white; }
+button { background:#4c7dff; color:white; cursor:pointer; }
 
 .result {
     margin-top: 12px;
@@ -68,28 +54,23 @@ button:hover {
 
 <div class="card">
 
-    <h1>Audio Analyzer</h1>
+<h1>Audio Analyzer</h1>
 
-    <!-- FL SLIDER -->
-    <div class="section">
-        <h2>FL Slider</h2>
+<div class="section">
+    <h2>FL Slider</h2>
+    <input id="orig" type="number" value="128">
+    <input id="target" type="number" value="120">
+    <div class="result" id="sliderResult"></div>
+</div>
 
-        <input id="orig" type="number" value="128">
-        <input id="target" type="number" value="120">
+<div class="section">
+    <h2>Analyze</h2>
+    <input type="file" id="audioFile">
+    <button id="analyzeBtn">Analyze</button>
 
-        <div class="result" id="sliderResult">0.000000</div>
-    </div>
-
-    <!-- ANALYZER -->
-    <div class="section">
-        <h2>Analyze Track</h2>
-
-        <input type="file" id="audioFile" accept="audio/*">
-        <button id="analyzeBtn">Analyze</button>
-
-        <div class="result" id="bpmResult">BPM: -</div>
-        <div class="result" id="keyResult">Key: -</div>
-    </div>
+    <div class="result" id="bpmResult">BPM: -</div>
+    <div class="result" id="keyResult">Key: -</div>
+</div>
 
 </div>
 
@@ -107,112 +88,123 @@ function updateSlider() {
     const o = parseFloat(orig.value);
     const t = parseFloat(target.value);
 
-    if (!o || !t) return;
-
     const k = 0.3613;
     const val = 0.5 - k * Math.log(t / o);
 
     sliderResult.textContent = val.toFixed(6);
 }
 
-orig.addEventListener("input", updateSlider);
-target.addEventListener("input", updateSlider);
+orig.oninput = updateSlider;
+target.oninput = updateSlider;
 updateSlider();
 
 
 /* =========================
-   WEB WORKER (Essentia)
+   SIMPLE BPM DETECTOR (STABLE)
 ========================= */
 
-let worker;
+function detectBPM(signal, sampleRate) {
 
-async function initWorker() {
+    const block = 1024;
+    let energy = [];
 
-    worker = new Worker(URL.createObjectURL(new Blob([`
-        self.importScripts("https://cdn.jsdelivr.net/npm/essentia.js/dist/essentia.js");
+    for (let i = 0; i < signal.length; i += block) {
+        let sum = 0;
 
-        let essentia;
-
-        async function init() {
-            const wasm = await EssentiaModule();
-            essentia = new Essentia(wasm);
+        for (let j = 0; j < block && i + j < signal.length; j++) {
+            const v = signal[i + j];
+            sum += Math.abs(v);
         }
 
-        init();
+        energy.push(sum);
+    }
 
-        self.onmessage = async (e) => {
+    const max = Math.max(...energy) || 1;
+    energy = energy.map(v => v / max);
 
-            const { audio, sampleRate } = e.data;
+    const sr = sampleRate / block;
 
-            const vector = essentia.arrayToVector(audio);
+    const minLag = Math.floor((sr * 60) / 200);
+    const maxLag = Math.floor((sr * 60) / 60);
 
-            const rhythm = essentia.RhythmExtractor2013(vector, sampleRate);
+    let bestLag = 0;
+    let best = -Infinity;
 
-            let bpm = rhythm.bpm;
+    for (let lag = minLag; lag < maxLag; lag++) {
+        let score = 0;
 
-            while (bpm < 80) bpm *= 2;
-            while (bpm > 200) bpm /= 2;
+        for (let i = 0; i < energy.length - lag; i++) {
+            score += energy[i] * energy[i + lag];
+        }
 
-            const keyData = essentia.KeyExtractor(vector, sampleRate);
+        if (score > best) {
+            best = score;
+            bestLag = lag;
+        }
+    }
 
-            self.postMessage({
-                bpm: Math.round(bpm * 100) / 100,
-                key: keyData.key,
-                scale: keyData.scale,
-                confidence: keyData.strength || 0
-            });
-        };
+    let bpm = 60 * sr / bestLag;
 
-    `], { type: "application/javascript" })));
+    while (bpm < 80) bpm *= 2;
+    while (bpm > 200) bpm /= 2;
+
+    return Math.round(bpm * 100) / 100;
 }
-
-initWorker();
 
 
 /* =========================
-   UI LOGIC
+   SIMPLE KEY DETECTION (LIGHTWEIGHT)
 ========================= */
 
-const audioFile = document.getElementById("audioFile");
-const analyzeBtn = document.getElementById("analyzeBtn");
-const bpmResult = document.getElementById("bpmResult");
-const keyResult = document.getElementById("keyResult");
+function detectKey(signal) {
 
-analyzeBtn.addEventListener("click", async () => {
+    const notes = new Array(12).fill(0);
 
-    const file = audioFile.files[0];
-    if (!file) return;
+    for (let i = 0; i < signal.length; i += 2048) {
 
-    bpmResult.textContent = "BPM: analyzing...";
-    keyResult.textContent = "Key: analyzing...";
+        let chunk = 0;
 
-    const audioContext = new AudioContext();
-    const buffer = await audioContext.decodeAudioData(await file.arrayBuffer());
+        for (let j = 0; j < 2048 && i + j < signal.length; j++) {
+            chunk += Math.abs(signal[i + j]);
+        }
 
-    /* LIGHT RESAMPLE (speed boost) */
-    const step = 2;
-    const raw = buffer.getChannelData(0);
-    const reduced = [];
-
-    for (let i = 0; i < raw.length; i += step) {
-        reduced.push(raw[i]);
+        notes[i % 12] += chunk;
     }
 
-    worker.onmessage = (e) => {
+    const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 
-        const { bpm, key, scale, confidence } = e.data;
+    let best = 0;
+    for (let i = 1; i < 12; i++) {
+        if (notes[i] > notes[best]) best = i;
+    }
 
-        bpmResult.textContent = "BPM: " + bpm;
+    return names[best];
+}
 
-        keyResult.textContent =
-            `Key: ${key} ${scale} (${(confidence * 100).toFixed(1)}%)`;
-    };
 
-    worker.postMessage({
-        audio: reduced,
-        sampleRate: buffer.sampleRate / step
-    });
-});
+/* =========================
+   MAIN
+========================= */
+
+document.getElementById("analyzeBtn").onclick = async () => {
+
+    const file = document.getElementById("audioFile").files[0];
+    if (!file) return;
+
+    document.getElementById("bpmResult").textContent = "BPM: analyzing...";
+    document.getElementById("keyResult").textContent = "Key: analyzing...";
+
+    const ctx = new AudioContext();
+    const buffer = await ctx.decodeAudioData(await file.arrayBuffer());
+
+    const signal = buffer.getChannelData(0);
+
+    const bpm = detectBPM(signal, buffer.sampleRate);
+    const key = detectKey(signal);
+
+    document.getElementById("bpmResult").textContent = "BPM: " + bpm;
+    document.getElementById("keyResult").textContent = "Key: " + key;
+};
 
 </script>
 
