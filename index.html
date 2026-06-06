@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FL Slider Tool</title>
+<title>FL Tempo Slider</title>
 
 <style>
 body {
@@ -26,6 +26,10 @@ body {
     box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
 
+h1 {
+    margin-top: 0;
+}
+
 .section {
     margin-top: 20px;
 }
@@ -43,7 +47,7 @@ input {
 
 .result {
     margin-top: 15px;
-    font-size: 20px;
+    font-size: 22px;
     color: #7aa2ff;
 }
 </style>
@@ -59,7 +63,7 @@ input {
         <input id="orig" type="number" value="128" placeholder="Original BPM">
         <input id="target" type="number" value="120" placeholder="Target BPM">
 
-        <div class="result" id="sliderResult">0.000000</div>
+        <div class="result" id="sliderResult">0.500000</div>
     </div>
 
 </div>
@@ -70,14 +74,20 @@ const orig = document.getElementById("orig");
 const target = document.getElementById("target");
 const sliderResult = document.getElementById("sliderResult");
 
+/* =========================
+   FL-STYLE LOG SLIDER
+   0.5 = normal speed
+========================= */
+
+const k = 0.3613;
+
 function updateSlider() {
     const o = parseFloat(orig.value);
     const t = parseFloat(target.value);
 
     if (!o || !t || o <= 0 || t <= 0) return;
 
-    const ratio = t / o;
-    const value = Math.log2(ratio);
+    const value = 0.5 - k * Math.log2(t / o);
 
     sliderResult.textContent = value.toFixed(6);
 }
