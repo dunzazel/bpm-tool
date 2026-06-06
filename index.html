@@ -6,72 +6,75 @@
 <title>BPM Tool</title>
 
 <style>
-:root {
-    --bg: #0b0d12;
-    --card: rgba(255,255,255,0.06);
-    --border: rgba(255,255,255,0.1);
-    --text: #ffffff;
-    --accent: #6ea8ff;
-}
-
 body {
     margin: 0;
     min-height: 100vh;
-    font-family: sans-serif;
-    background: radial-gradient(circle at top, #1a1f2e, var(--bg));
-    color: var(--text);
+    font-family: system-ui, sans-serif;
+    background: #0b0d12;
     display: flex;
     justify-content: center;
-    padding: 30px;
+    align-items: center;
+    color: white;
 }
 
 .card {
-    width: 100%;
-    max-width: 650px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 25px;
-    backdrop-filter: blur(12px);
+    width: 90%;
+    max-width: 600px;
+    background: #121725;
+    padding: 24px;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
 
 h1 {
     margin-top: 0;
 }
 
-h2 {
-    margin-bottom: 10px;
-}
-
 input, button {
     width: 100%;
     padding: 12px;
-    margin-top: 8px;
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    background: rgba(255,255,255,0.05);
-    color: white;
+    margin-top: 10px;
+    border-radius: 10px;
+    border: none;
     font-size: 14px;
 }
 
+input {
+    background: #1b2236;
+    color: white;
+}
+
 button {
+    background: #4c7dff;
+    color: white;
     cursor: pointer;
 }
 
 button:hover {
-    border-color: var(--accent);
-}
-
-.section {
-    margin-top: 25px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border);
+    background: #3a66dd;
 }
 
 .result {
-    font-size: 24px;
-    color: var(--accent);
-    margin-top: 10px;
+    margin-top: 15px;
+    font-size: 20px;
+    color: #7aa2ff;
+}
+
+/* Progress bar */
+.progress-container {
+    width: 100%;
+    height: 10px;
+    background: #1b2236;
+    border-radius: 5px;
+    margin-top: 15px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    width: 0%;
+    background: #4c7dff;
+    transition: width 0.1s linear;
 }
 </style>
 </head>
@@ -79,119 +82,81 @@ button:hover {
 <body>
 
 <div class="card">
-    <h1>BPM Tool</h1>
+    <h1>BPM Detector</h1>
 
-    <!-- SLIDER -->
-    <h2>Slider Calculator</h2>
+    <input type="file" id="audioFile" accept="audio/*">
+    <button id="detectBtn">Detect BPM</button>
 
-    <input id="orig" type="number" value="128">
-    <input id="target" type="number" value="120">
-
-    <div class="result" id="sliderResult">0.000000</div>
-
-    <!-- BPM DETECTOR -->
-    <div class="section">
-        <h2>BPM Detector</h2>
-
-        <input type="file" id="audioFile" accept="audio/*">
-
-        <button id="detectBtn">Detect BPM</button>
-
-        <div class="result" id="bpmResult">No BPM detected yet</div>
+    <div class="progress-container">
+        <div class="progress-bar" id="progress"></div>
     </div>
+
+    <div class="result" id="bpmResult">Waiting...</div>
 </div>
 
 <script>
-/* =========================
-   SLIDER CALCULATOR
-========================= */
-
-const origInput = document.getElementById("orig");
-const targetInput = document.getElementById("target");
-const sliderResult = document.getElementById("sliderResult");
-
-function calculateSlider() {
-    const orig = parseFloat(origInput.value);
-    const target = parseFloat(targetInput.value);
-
-    if (!orig || !target) return;
-
-    const k = 0.3613;
-    const slider = 0.5 - k * Math.log(target / orig);
-
-    sliderResult.textContent = slider.toFixed(6);
-}
-
-origInput.addEventListener("input", calculateSlider);
-targetInput.addEventListener("input", calculateSlider);
-
-calculateSlider();
-
-
-/* =========================
-   IMPROVED BPM DETECTOR
-========================= */
-
 const fileInput = document.getElementById("audioFile");
 const detectBtn = document.getElementById("detectBtn");
 const bpmResult = document.getElementById("bpmResult");
+const progress = document.getElementById("progress");
+
+function setProgress(p) {
+    progress.style.width = (p * 100) + "%";
+}
 
 detectBtn.addEventListener("click", async () => {
     const file = fileInput.files[0];
 
     if (!file) {
-        bpmResult.textContent = "Select an audio file first.";
+        bpmResult.textContent = "Select a file first.";
         return;
     }
 
-    bpmResult.textContent = "Analyzing (spectral mode)...";
+    bpmResult.textContent = "Analyzing...";
+    setProgress(0);
 
     await new Promise(requestAnimationFrame);
 
     const audioContext = new AudioContext();
-
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
     const raw = audioBuffer.getChannelData(0);
 
     /* =========================
-       STEP 1: windowed energy bands
+       STEP 1: ENERGY ENVELOPE
     ========================= */
 
-    const step = 1024;
-    let spectral = [];
+    const block = 1024;
+    let energy = [];
 
-    for (let i = 0; i < raw.length - step; i += step) {
-        let low = 0;
-        let high = 0;
+    for (let i = 0; i < raw.length; i += block) {
+        let sum = 0;
 
-        for (let j = 0; j < step; j++) {
-            const v = raw[i + j];
-
-            // crude spectral split (no FFT, but works surprisingly well)
-            const abs = Math.abs(v);
-
-            if (j < step / 2) low += abs;
-            else high += abs;
+        for (let j = 0; j < block && i + j < raw.length; j++) {
+            sum += Math.abs(raw[i + j]);
         }
 
-        // onset strength = change between bands
-        spectral.push(Math.abs(high - low));
+        energy.push(sum);
+
+        if (i % (block * 20) === 0) {
+            setProgress(i / raw.length * 0.4);
+            await new Promise(r => setTimeout(r, 0));
+        }
     }
 
     /* =========================
-       STEP 2: normalize
+       STEP 2: NORMALIZE
     ========================= */
 
-    const maxVal = Math.max(...spectral) || 1;
-    spectral = spectral.map(v => v / maxVal);
+    const maxVal = Math.max(...energy) || 1;
+    energy = energy.map(v => v / maxVal);
 
     /* =========================
-       STEP 3: autocorrelation (clean signal)
+       STEP 3: AUTOCORRELATION
     ========================= */
 
-    const sampleRate = audioContext.sampleRate / step;
+    const sampleRate = audioContext.sampleRate / block;
 
     const minLag = Math.floor((sampleRate * 60) / 200);
     const maxLag = Math.floor((sampleRate * 60) / 60);
@@ -199,49 +164,41 @@ detectBtn.addEventListener("click", async () => {
     let bestLag = 0;
     let bestScore = -Infinity;
 
+    const total = maxLag - minLag;
+
     for (let lag = minLag; lag < maxLag; lag++) {
         let score = 0;
 
-        for (let i = 0; i < spectral.length - lag; i++) {
-            score += spectral[i] * spectral[i + lag];
+        for (let i = 0; i < energy.length - lag; i++) {
+            score += energy[i] * energy[i + lag];
         }
 
         if (score > bestScore) {
             bestScore = score;
             bestLag = lag;
         }
-    }
 
-    if (!bestLag) {
-        bpmResult.textContent = "Could not detect BPM";
-        return;
+        if (lag % 5 === 0) {
+            setProgress(0.4 + (lag - minLag) / total * 0.6);
+            await new Promise(r => setTimeout(r, 0));
+        }
     }
 
     /* =========================
-       STEP 4: BPM conversion
+       STEP 4: BPM
     ========================= */
 
     let bpm = 60 * sampleRate / bestLag;
-
-    /* =========================
-       STEP 5: safe octave correction
-    ========================= */
 
     while (bpm < 80) bpm *= 2;
     while (bpm > 200) bpm /= 2;
 
     bpm = Math.round(bpm * 100) / 100;
 
-    /* =========================
-       STEP 6: confidence estimate
-    ========================= */
+    setProgress(1);
 
-    const confidence = Math.min(1, bestScore);
-
-    bpmResult.textContent =
-        `Detected BPM: ${bpm} (confidence: ${(confidence * 100).toFixed(1)}%)`;
+    bpmResult.textContent = "Detected BPM: " + bpm;
 });
-
 </script>
 
 </body>
