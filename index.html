@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BPM Slider Calculator</title>
+<title>BPM Tool</title>
 
 <style>
 :root {
@@ -14,94 +14,60 @@
     --accent: #6ea8ff;
 }
 
-* {
-    box-sizing: border-box;
-}
-
 body {
     margin: 0;
     min-height: 100vh;
+    font-family: sans-serif;
+    background: radial-gradient(circle at top, #1a1f2e, var(--bg));
+    color: var(--text);
     display: flex;
     justify-content: center;
-    align-items: center;
-    background: radial-gradient(circle at top, #1a1f2e, var(--bg));
-    font-family: sans-serif;
-    color: var(--text);
-    padding: 20px;
-    overflow: hidden;
+    padding: 30px;
 }
 
 .card {
     width: 100%;
-    max-width: 520px;
-    padding: 28px;
-    border-radius: 24px;
+    max-width: 600px;
     background: var(--card);
     border: 1px solid var(--border);
-    backdrop-filter: blur(14px);
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-    animation: floatIn 0.8s ease;
-}
-
-@keyframes floatIn {
-    from {
-        transform: translateY(20px);
-        opacity: 0;
-    }
-    to {
-        transform: translateY(0);
-        opacity: 1;
-    }
+    border-radius: 20px;
+    padding: 25px;
+    backdrop-filter: blur(12px);
 }
 
 h1 {
-    margin: 0 0 20px;
-    font-size: 1.8rem;
+    margin-top: 0;
 }
 
-label {
-    display: block;
-    margin-top: 14px;
-    opacity: 0.8;
-    font-size: 0.9rem;
-}
-
-input {
+input, button {
     width: 100%;
-    padding: 14px;
-    margin-top: 6px;
-    border-radius: 14px;
+    padding: 12px;
+    margin-top: 8px;
+    border-radius: 12px;
     border: 1px solid var(--border);
     background: rgba(255,255,255,0.05);
-    color: var(--text);
-    outline: none;
-    transition: 0.2s ease;
+    color: white;
+    font-size: 14px;
 }
 
-input:focus {
+button {
+    cursor: pointer;
+}
+
+button:hover {
     border-color: var(--accent);
-    transform: scale(1.02);
 }
 
-.result-box {
-    margin-top: 22px;
-    padding: 18px;
-    border-radius: 18px;
-    background: rgba(255,255,255,0.05);
-    text-align: center;
-    transition: 0.3s ease;
+.section {
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
 }
 
 .result {
-    font-size: 2.4rem;
-    font-weight: bold;
+    font-size: 24px;
     color: var(--accent);
-    margin-top: 8px;
-    transition: transform 0.2s ease;
-}
-
-.result.animate {
-    transform: scale(1.08);
+    margin-top: 10px;
 }
 </style>
 </head>
@@ -109,54 +75,124 @@ input:focus {
 <body>
 
 <div class="card">
-    <h1>BPM Slider Calculator</h1>
+    <h1>BPM Tool</h1>
 
-    <label>Original BPM</label>
-    <input id="orig" type="number" step="0.001" value="128">
+    <!-- SLIDER TOOL -->
+    <h2>Slider Calculator</h2>
 
-    <label>Target BPM</label>
-    <input id="target" type="number" step="0.001" value="120">
+    <input id="orig" type="number" value="128">
+    <input id="target" type="number" value="120">
 
-    <div class="result-box">
-        <div>Slider Value</div>
-        <div class="result" id="result">0.000000</div>
+    <div class="result" id="sliderResult">0.000000</div>
+
+    <!-- BPM DETECTOR -->
+    <div class="section">
+        <h2>BPM Detector</h2>
+
+        <input type="file" id="audioFile" accept="audio/*">
+
+        <button id="detectBtn">Detect BPM</button>
+
+        <div class="result" id="bpmResult">No BPM detected yet</div>
     </div>
 </div>
 
 <script>
+/* =========================
+   SLIDER CALCULATOR
+========================= */
+
 const origInput = document.getElementById("orig");
 const targetInput = document.getElementById("target");
-const result = document.getElementById("result");
+const sliderResult = document.getElementById("sliderResult");
 
-function animate() {
-    result.classList.add("animate");
-    setTimeout(() => result.classList.remove("animate"), 150);
-}
-
-// FL-style log model (no guess exponent)
-function calculate() {
+function calculateSlider() {
     const orig = parseFloat(origInput.value);
     const target = parseFloat(targetInput.value);
 
     if (!orig || !target) return;
 
     const k = 0.3613;
-
     const slider = 0.5 - k * Math.log(target / orig);
 
-    const output = Math.max(0, Math.min(1, slider)).toFixed(6);
-
-    if (result.textContent !== output) {
-        animate();
-    }
-
-    result.textContent = output;
+    sliderResult.textContent = slider.toFixed(6);
 }
 
-origInput.addEventListener("input", calculate);
-targetInput.addEventListener("input", calculate);
+origInput.addEventListener("input", calculateSlider);
+targetInput.addEventListener("input", calculateSlider);
 
-calculate();
+calculateSlider();
+
+
+/* =========================
+   BPM DETECTOR
+========================= */
+
+const fileInput = document.getElementById("audioFile");
+const detectBtn = document.getElementById("detectBtn");
+const bpmResult = document.getElementById("bpmResult");
+
+detectBtn.addEventListener("click", async () => {
+    const file = fileInput.files[0];
+
+    if (!file) {
+        bpmResult.textContent = "Select an audio file first.";
+        return;
+    }
+
+    bpmResult.textContent = "Analyzing...";
+
+    const audioContext = new AudioContext();
+
+    const arrayBuffer = await file.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    const data = audioBuffer.getChannelData(0);
+
+    const blockSize = 1024;
+    let energies = [];
+
+    for (let i = 0; i < data.length; i += blockSize) {
+        let sum = 0;
+
+        for (let j = i; j < i + blockSize && j < data.length; j++) {
+            sum += Math.abs(data[j]);
+        }
+
+        energies.push(sum);
+    }
+
+    let peaks = [];
+
+    for (let i = 1; i < energies.length - 1; i++) {
+        if (energies[i] > energies[i - 1] &&
+            energies[i] > energies[i + 1]) {
+            peaks.push(i);
+        }
+    }
+
+    if (peaks.length < 2) {
+        bpmResult.textContent = "Could not detect BPM";
+        return;
+    }
+
+    let intervals = [];
+
+    for (let i = 1; i < peaks.length; i++) {
+        intervals.push(peaks[i] - peaks[i - 1]);
+    }
+
+    let avgInterval =
+        intervals.reduce((a, b) => a + b, 0) / intervals.length;
+
+    let secondsPerBeat =
+        (avgInterval * blockSize) / audioContext.sampleRate;
+
+    let bpm = 60 / secondsPerBeat;
+
+    bpmResult.textContent =
+        "Detected BPM: " + bpm.toFixed(2);
+});
 </script>
 
 </body>
