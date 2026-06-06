@@ -144,7 +144,7 @@ detectBtn.addEventListener("click", async () => {
         return;
     }
 
-    bpmResult.textContent = "Analyzing...";
+    bpmResult.textContent = "Analyzing (spectral mode)...";
 
     await new Promise(requestAnimationFrame);
 
@@ -156,48 +156,39 @@ detectBtn.addEventListener("click", async () => {
     const raw = audioBuffer.getChannelData(0);
 
     /* =========================
-       STEP 1: downsample
+       STEP 1: windowed energy bands
     ========================= */
 
-    const step = 4;
-    let signal = [];
+    const step = 1024;
+    let spectral = [];
 
-    for (let i = 0; i < raw.length; i += step) {
-        signal.push(raw[i]);
+    for (let i = 0; i < raw.length - step; i += step) {
+        let low = 0;
+        let high = 0;
+
+        for (let j = 0; j < step; j++) {
+            const v = raw[i + j];
+
+            // crude spectral split (no FFT, but works surprisingly well)
+            const abs = Math.abs(v);
+
+            if (j < step / 2) low += abs;
+            else high += abs;
+        }
+
+        // onset strength = change between bands
+        spectral.push(Math.abs(high - low));
     }
 
     /* =========================
-       STEP 2: rectified energy
+       STEP 2: normalize
     ========================= */
 
-    let energy = signal.map(v => Math.abs(v));
+    const maxVal = Math.max(...spectral) || 1;
+    spectral = spectral.map(v => v / maxVal);
 
     /* =========================
-       STEP 3: smoothing (important for stability)
-    ========================= */
-
-    let smooth = [];
-
-    for (let i = 1; i < energy.length - 1; i++) {
-        smooth[i] =
-            energy[i] * 0.6 +
-            (energy[i - 1] || energy[i]) * 0.2 +
-            (energy[i + 1] || energy[i]) * 0.2;
-    }
-
-    smooth = smooth.filter(v => v !== undefined);
-
-    /* =========================
-       STEP 4: normalize (CRITICAL FIX)
-    ========================= */
-
-    const maxVal = Math.max(...smooth) || 1;
-    for (let i = 0; i < smooth.length; i++) {
-        smooth[i] /= maxVal;
-    }
-
-    /* =========================
-       STEP 5: autocorrelation (safe range)
+       STEP 3: autocorrelation (clean signal)
     ========================= */
 
     const sampleRate = audioContext.sampleRate / step;
@@ -208,11 +199,11 @@ detectBtn.addEventListener("click", async () => {
     let bestLag = 0;
     let bestScore = -Infinity;
 
-    for (let lag = minLag; lag < maxLag; lag += 1) {
+    for (let lag = minLag; lag < maxLag; lag++) {
         let score = 0;
 
-        for (let i = 0; i < smooth.length - lag; i++) {
-            score += smooth[i] * smooth[i + lag];
+        for (let i = 0; i < spectral.length - lag; i++) {
+            score += spectral[i] * spectral[i + lag];
         }
 
         if (score > bestScore) {
@@ -227,13 +218,13 @@ detectBtn.addEventListener("click", async () => {
     }
 
     /* =========================
-       STEP 6: BPM conversion
+       STEP 4: BPM conversion
     ========================= */
 
     let bpm = 60 * sampleRate / bestLag;
 
     /* =========================
-       STEP 7: minimal octave correction
+       STEP 5: safe octave correction
     ========================= */
 
     while (bpm < 80) bpm *= 2;
@@ -241,8 +232,16 @@ detectBtn.addEventListener("click", async () => {
 
     bpm = Math.round(bpm * 100) / 100;
 
-    bpmResult.textContent = "Detected BPM: " + bpm;
+    /* =========================
+       STEP 6: confidence estimate
+    ========================= */
+
+    const confidence = Math.min(1, bestScore);
+
+    bpmResult.textContent =
+        `Detected BPM: ${bpm} (confidence: ${(confidence * 100).toFixed(1)}%)`;
 });
+
 </script>
 
 </body>
