@@ -156,54 +156,59 @@ detectBtn.addEventListener("click", async () => {
     const raw = audioBuffer.getChannelData(0);
 
     /* =========================
-       STEP 1: downsample signal
+       STEP 1: energy envelope (better scaling)
     ========================= */
 
-    const step = 4;
-    let signal = [];
-
-    for (let i = 0; i < raw.length; i += step) {
-        signal.push(Math.abs(raw[i]));
-    }
-
-    /* =========================
-       STEP 2: energy envelope
-    ========================= */
-
-    const block = 1024;
+    const block = 512; // smaller = more detail
     let energy = [];
 
-    for (let i = 0; i < signal.length; i += block) {
+    for (let i = 0; i < raw.length; i += block) {
         let sum = 0;
 
-        for (let j = 0; j < block && i + j < signal.length; j++) {
-            sum += signal[i + j];
+        for (let j = 0; j < block && i + j < raw.length; j++) {
+            const v = raw[i + j];
+            sum += v * v;
         }
 
         energy.push(sum);
     }
 
     /* =========================
-       STEP 3: autocorrelation (LIMITED SEARCH)
+       STEP 2: normalize energy (IMPORTANT FIX)
     ========================= */
 
-    const minBPM = 60;
-    const maxBPM = 200;
+    const maxE = Math.max(...energy) || 1;
+    energy = energy.map(v => v / maxE);
 
-    const sampleRate = audioContext.sampleRate / step;
+    /* =========================
+       STEP 3: light smoothing
+    ========================= */
 
-    const minLag = Math.floor((sampleRate * 60) / maxBPM);
-    const maxLag = Math.floor((sampleRate * 60) / minBPM);
+    let smooth = [];
+    for (let i = 0; i < energy.length; i++) {
+        smooth[i] =
+            (energy[i - 1] || energy[i]) * 0.25 +
+            energy[i] * 0.5 +
+            (energy[i + 1] || energy[i]) * 0.25;
+    }
+
+    /* =========================
+       STEP 4: autocorrelation (safe range)
+    ========================= */
+
+    const sampleRate = audioContext.sampleRate / block;
+
+    const minLag = Math.floor((sampleRate * 60) / 200);
+    const maxLag = Math.floor((sampleRate * 60) / 60);
 
     let bestLag = 0;
-    let bestScore = 0;
+    let bestScore = -Infinity;
 
-    // IMPORTANT: skip steps = avoids freeze
-    for (let lag = minLag; lag < maxLag; lag += 2) {
+    for (let lag = minLag; lag < maxLag; lag += 1) {
         let score = 0;
 
-        for (let i = 0; i < energy.length - lag; i++) {
-            score += energy[i] * energy[i + lag];
+        for (let i = 0; i < smooth.length - lag; i++) {
+            score += smooth[i] * smooth[i + lag];
         }
 
         if (score > bestScore) {
@@ -218,13 +223,13 @@ detectBtn.addEventListener("click", async () => {
     }
 
     /* =========================
-       STEP 4: convert to BPM
+       STEP 5: convert to BPM
     ========================= */
 
     let bpm = 60 * sampleRate / bestLag;
 
     /* =========================
-       STEP 5: octave correction ONLY
+       STEP 6: octave fix only
     ========================= */
 
     while (bpm < 80) bpm *= 2;
