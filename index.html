@@ -105,40 +105,50 @@ updateSlider();
 
 function detectBPM(signal, sampleRate) {
 
-    const block = 1024;
-    let energy = [];
+    const frameSize = 1024;
 
-    for (let i = 0; i < signal.length; i += block) {
-        let sum = 0;
+    let onset = [];
+    let prevEnergy = 0;
 
-        for (let j = 0; j < block && i + j < signal.length; j++) {
+    for (let i = 0; i < signal.length; i += frameSize) {
+
+        let energy = 0;
+
+        for (let j = 0; j < frameSize && i + j < signal.length; j++) {
             const v = signal[i + j];
-            sum += Math.abs(v);
+            energy += v * v;
         }
 
-        energy.push(sum);
+        energy = Math.sqrt(energy / frameSize);
+
+        const diff = Math.max(0, energy - prevEnergy);
+        onset.push(diff);
+
+        prevEnergy = energy;
     }
 
-    const max = Math.max(...energy) || 1;
-    energy = energy.map(v => v / max);
+    // normalize
+    const max = Math.max(...onset) || 1;
+    onset = onset.map(v => v / max);
 
-    const sr = sampleRate / block;
+    const sr = sampleRate / frameSize;
 
     const minLag = Math.floor((sr * 60) / 200);
     const maxLag = Math.floor((sr * 60) / 60);
 
     let bestLag = 0;
-    let best = -Infinity;
+    let bestScore = -Infinity;
 
     for (let lag = minLag; lag < maxLag; lag++) {
+
         let score = 0;
 
-        for (let i = 0; i < energy.length - lag; i++) {
-            score += energy[i] * energy[i + lag];
+        for (let i = 0; i < onset.length - lag; i++) {
+            score += onset[i] * onset[i + lag];
         }
 
-        if (score > best) {
-            best = score;
+        if (score > bestScore) {
+            bestScore = score;
             bestLag = lag;
         }
     }
