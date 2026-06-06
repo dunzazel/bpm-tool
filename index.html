@@ -156,47 +156,51 @@ detectBtn.addEventListener("click", async () => {
     const raw = audioBuffer.getChannelData(0);
 
     /* =========================
-       STEP 1: energy envelope (better scaling)
+       STEP 1: downsample
     ========================= */
 
-    const block = 512; // smaller = more detail
-    let energy = [];
+    const step = 4;
+    let signal = [];
 
-    for (let i = 0; i < raw.length; i += block) {
-        let sum = 0;
-
-        for (let j = 0; j < block && i + j < raw.length; j++) {
-            const v = raw[i + j];
-            sum += v * v;
-        }
-
-        energy.push(sum);
+    for (let i = 0; i < raw.length; i += step) {
+        signal.push(raw[i]);
     }
 
     /* =========================
-       STEP 2: normalize energy (IMPORTANT FIX)
+       STEP 2: rectified energy
     ========================= */
 
-    const maxE = Math.max(...energy) || 1;
-    energy = energy.map(v => v / maxE);
+    let energy = signal.map(v => Math.abs(v));
 
     /* =========================
-       STEP 3: light smoothing
+       STEP 3: smoothing (important for stability)
     ========================= */
 
     let smooth = [];
-    for (let i = 0; i < energy.length; i++) {
+
+    for (let i = 1; i < energy.length - 1; i++) {
         smooth[i] =
-            (energy[i - 1] || energy[i]) * 0.25 +
-            energy[i] * 0.5 +
-            (energy[i + 1] || energy[i]) * 0.25;
+            energy[i] * 0.6 +
+            (energy[i - 1] || energy[i]) * 0.2 +
+            (energy[i + 1] || energy[i]) * 0.2;
+    }
+
+    smooth = smooth.filter(v => v !== undefined);
+
+    /* =========================
+       STEP 4: normalize (CRITICAL FIX)
+    ========================= */
+
+    const maxVal = Math.max(...smooth) || 1;
+    for (let i = 0; i < smooth.length; i++) {
+        smooth[i] /= maxVal;
     }
 
     /* =========================
-       STEP 4: autocorrelation (safe range)
+       STEP 5: autocorrelation (safe range)
     ========================= */
 
-    const sampleRate = audioContext.sampleRate / block;
+    const sampleRate = audioContext.sampleRate / step;
 
     const minLag = Math.floor((sampleRate * 60) / 200);
     const maxLag = Math.floor((sampleRate * 60) / 60);
@@ -223,13 +227,13 @@ detectBtn.addEventListener("click", async () => {
     }
 
     /* =========================
-       STEP 5: convert to BPM
+       STEP 6: BPM conversion
     ========================= */
 
     let bpm = 60 * sampleRate / bestLag;
 
     /* =========================
-       STEP 6: octave fix only
+       STEP 7: minimal octave correction
     ========================= */
 
     while (bpm < 80) bpm *= 2;
