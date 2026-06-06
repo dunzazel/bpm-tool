@@ -131,8 +131,8 @@ const detectBtn = document.getElementById("detectBtn");
 const bpmResult = document.getElementById("bpmResult");
 
 detectBtn.addEventListener("click", async () => {
-
     const file = fileInput.files[0];
+
     if (!file) {
         bpmResult.textContent = "Select a file first.";
         return;
@@ -143,73 +143,82 @@ detectBtn.addEventListener("click", async () => {
     await new Promise(requestAnimationFrame);
 
     const audioContext = new AudioContext();
+    const buffer = await audioContext.decodeAudioData(await file.arrayBuffer());
 
-    const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-    const raw = audioBuffer.getChannelData(0);
+    const raw = buffer.getChannelData(0);
 
     /* =========================
-       STEP 1: energy envelope
+       STEP 1: spectral-like envelope
     ========================= */
 
-    const block = 1024;
-    let energy = [];
+    const step = 512;
+    let envelope = [];
 
-    for (let i = 0; i < raw.length; i += block) {
-        let sum = 0;
+    for (let i = 0; i < raw.length; i += step) {
+        let rms = 0;
 
-        for (let j = 0; j < block && i + j < raw.length; j++) {
-            sum += Math.abs(raw[i + j]);
+        for (let j = 0; j < step && i + j < raw.length; j++) {
+            const v = raw[i + j];
+            rms += v * v;
         }
 
-        energy.push(sum);
+        envelope.push(Math.sqrt(rms / step));
     }
 
-    /* normalize */
-    const maxVal = Math.max(...energy) || 1;
-    energy = energy.map(v => v / maxVal);
-
     /* =========================
-       STEP 2: candidate scoring (FIXES DRIFT)
+       STEP 2: remove slow trends (IMPORTANT FIX)
     ========================= */
 
-    const sampleRate = audioContext.sampleRate / block;
+    let filtered = [];
 
-    const minLag = Math.floor((sampleRate * 60) / 200);
-    const maxLag = Math.floor((sampleRate * 60) / 60);
+    for (let i = 1; i < envelope.length; i++) {
+        filtered[i] = Math.max(0, envelope[i] - envelope[i - 1]);
+    }
 
-    let candidates = [];
+    filtered = filtered.filter(v => !isNaN(v));
+
+    /* normalize */
+    const max = Math.max(...filtered) || 1;
+    filtered = filtered.map(v => v / max);
+
+    /* =========================
+       STEP 3: autocorrelation on CLEANED ONSETS
+    ========================= */
+
+    const sr = audioContext.sampleRate / step;
+
+    const minLag = Math.floor((sr * 60) / 200);
+    const maxLag = Math.floor((sr * 60) / 60);
+
+    let bestLag = 0;
+    let bestScore = -Infinity;
 
     for (let lag = minLag; lag < maxLag; lag++) {
 
         let score = 0;
 
-        for (let i = 0; i < energy.length - lag; i++) {
-            score += energy[i] * energy[i + lag];
+        for (let i = 0; i < filtered.length - lag; i++) {
+            score += filtered[i] * filtered[i + lag];
         }
 
-        const bpm = 60 * sampleRate / lag;
+        if (score > bestScore) {
+            bestScore = score;
+            bestLag = lag;
+        }
+    }
 
-        candidates.push({ bpm, score });
+    if (!bestLag) {
+        bpmResult.textContent = "Could not detect BPM";
+        return;
     }
 
     /* =========================
-       STEP 3: pick best candidates
+       STEP 4: BPM
     ========================= */
 
-    candidates.sort((a, b) => b.score - a.score);
+    let bpm = 60 * sr / bestLag;
 
-    const top = candidates.slice(0, 7);
-
-    top.sort((a, b) => a.bpm - b.bpm);
-
-    let bpm = top[Math.floor(top.length / 2)].bpm;
-
-    /* =========================
-       STEP 4: light cleanup only
-    ========================= */
-
+    /* only octave fix (no guessing) */
     while (bpm < 80) bpm *= 2;
     while (bpm > 200) bpm /= 2;
 
