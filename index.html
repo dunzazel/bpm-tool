@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BPM Tool</title>
+<title>Audio Analyzer</title>
 
 <style>
 body {
@@ -58,7 +58,7 @@ button:hover {
 
 .result {
     margin-top: 12px;
-    font-size: 20px;
+    font-size: 18px;
     color: #7aa2ff;
 }
 </style>
@@ -68,9 +68,9 @@ button:hover {
 
 <div class="card">
 
-    <h1>BPM Tool</h1>
+    <h1>Audio Analyzer</h1>
 
-    <!-- SLIDER -->
+    <!-- FL SLIDER -->
     <div class="section">
         <h2>FL Slider</h2>
 
@@ -80,14 +80,15 @@ button:hover {
         <div class="result" id="sliderResult">0.000000</div>
     </div>
 
-    <!-- BPM DETECTOR -->
+    <!-- ANALYZER -->
     <div class="section">
-        <h2>BPM Detector</h2>
+        <h2>Analyze Track</h2>
 
         <input type="file" id="audioFile" accept="audio/*">
-        <button id="detectBtn">Detect BPM</button>
+        <button id="analyzeBtn">Analyze</button>
 
-        <div class="result" id="bpmResult">Waiting...</div>
+        <div class="result" id="bpmResult">BPM: -</div>
+        <div class="result" id="keyResult">Key: -</div>
     </div>
 
 </div>
@@ -123,12 +124,13 @@ updateSlider();
 
 
 /* =========================
-   ESSENTIA BPM
+   ESSENTIA SETUP
 ========================= */
 
-const fileInput = document.getElementById("audioFile");
-const detectBtn = document.getElementById("detectBtn");
+const audioFile = document.getElementById("audioFile");
+const analyzeBtn = document.getElementById("analyzeBtn");
 const bpmResult = document.getElementById("bpmResult");
+const keyResult = document.getElementById("keyResult");
 
 let essentia;
 
@@ -139,24 +141,35 @@ async function init() {
 
 init();
 
-detectBtn.addEventListener("click", async () => {
 
-    const file = fileInput.files[0];
+/* =========================
+   ANALYSIS
+========================= */
 
-    if (!file) {
-        bpmResult.textContent = "Select a file first.";
-        return;
-    }
+analyzeBtn.addEventListener("click", async () => {
 
-    bpmResult.textContent = "Analyzing...";
+    const file = audioFile.files[0];
+    if (!file) return;
+
+    bpmResult.textContent = "BPM: analyzing...";
+    keyResult.textContent = "Key: analyzing...";
 
     const audioContext = new AudioContext();
-
     const buffer = await audioContext.decodeAudioData(await file.arrayBuffer());
 
-    const signal = buffer.getChannelData(0);
+    /* =========================
+       FAST TRIM (fix slow analysis)
+    ========================= */
 
-    const vector = essentia.arrayToVector(signal);
+    const maxSeconds = 30;
+    const limit = Math.min(buffer.length, buffer.sampleRate * maxSeconds);
+    const raw = buffer.getChannelData(0).slice(0, limit);
+
+    const vector = essentia.arrayToVector(raw);
+
+    /* =========================
+       BPM
+    ========================= */
 
     const rhythm = essentia.RhythmExtractor2013(vector, buffer.sampleRate);
 
@@ -167,8 +180,21 @@ detectBtn.addEventListener("click", async () => {
 
     bpm = Math.round(bpm * 100) / 100;
 
-    bpmResult.textContent =
-        `Detected BPM: ${bpm}`;
+    bpmResult.textContent = "BPM: " + bpm;
+
+    /* =========================
+       KEY DETECTION
+    ========================= */
+
+    const keyData = essentia.KeyExtractor(vector, buffer.sampleRate);
+
+    const key = keyData.key;
+    const scale = keyData.scale;
+    const confidence =
+        keyData.strength || keyData.confidence || 0;
+
+    keyResult.textContent =
+        `Key: ${key} ${scale} (${(confidence * 100).toFixed(1)}%)`;
 });
 
 </script>
